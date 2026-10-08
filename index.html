@@ -67,7 +67,7 @@ h1 { font-family: var(--font-text); font-size: var(--step-h1); line-height: 1.15
 .bar .notice { flex-basis: 100%; }
 body { margin: 0; }
 .name { display: inline-flex; align-items: center; gap: 0.4rem; }
-.name input { font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 0.25rem 0.5rem; width: 10rem; }
+.name input { font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 0.25rem 0.5rem; width: 11rem; }
 .name input.need { border-color: var(--not); box-shadow: 0 0 0 2px var(--not-soft); }
 .notice { font-family: var(--font-ui); font-size: var(--step-ui); padding: 0.6rem 0.8rem; border-radius: 6px; background: var(--border-soft); color: var(--ink); border: 1px solid var(--rule); }
 .notice[hidden] { display: none !important; }
@@ -172,7 +172,7 @@ footer { font-family: var(--font-ui); font-size: var(--step-small); color: var(-
 
 <div class="bar">
   <div class="wrap">
-    <label class="name">Your name <input id="who" type="text" autocomplete="name"></label>
+    <label class="name">Your name <input id="who" type="text" autocomplete="name" placeholder="e.g. Ivan Ivanov"></label>
     <div class="progress"><span id="prog">0 of 15 rated</span><span class="meter" aria-hidden="true"><i id="meter"></i></span></div>
     <div class="seg" role="group" aria-label="Show">
       <button type="button" id="f-all" data-f="all" aria-pressed="true">All</button>
@@ -263,10 +263,15 @@ function notice(t) { const el = $("#notice"); el.textContent = t; el.hidden = !t
 function persist() { store.set("lantern.items", mine); store.set("lantern.unsent", [...unsent]); }
 
 // ---- sending: one row per change, carrying the item's full current state ----
-const timers = {};
-async function send(n) {
+// Delivery over losing nothing: notes go out on leaving the field and after 5 s of quiet, everything
+// pending goes out when the tab is hidden or closed (keepalive), failed sends retry every 20 s and
+// when the connection returns, and anything still unsent is sent again on the next visit.
+const timers = {}, ver = {}, failed = new Set();
+function bump(n) { ver[n] = (ver[n] || 0) + 1; }
+async function send(n, keepalive = false) {
   if (!who) { $("#who").classList.add("need"); notice("Enter your name at the top so your answers can be sent."); paintCard(n); return; }
-  const e = entry(n), it = byId[n];
+  clearTimeout(timers[n]);
+  const e = entry(n), it = byId[n], v0 = ver[n];
   const body = new URLSearchParams();
   body.set(F.reviewer, who);
   body.set(F.relation, `${it.k}: ${it.a} x ${it.b}`);
@@ -276,24 +281,34 @@ async function send(n) {
   body.set(F.note, e.note || "");
   $(`#s-${n}`).textContent = "Sending…";
   try {
-    await fetch(FORM, { method: "POST", mode: "no-cors", body });
-    mine[n] = Object.assign({}, entry(n), { sentAt: Date.now() });
-    unsent.delete(n);
-    persist();
-    $(`#s-${n}`).textContent = "Sent";
+    await fetch(FORM, { method: "POST", mode: "no-cors", body, keepalive });
+    failed.delete(n);
+    if (ver[n] === v0) {          // nothing changed while this was in flight
+      unsent.delete(n);
+      mine[n] = Object.assign({}, entry(n), { sentAt: Date.now() });
+      persist();
+      $(`#s-${n}`).textContent = "Sent";
+    }
     if (!unsent.size) notice("");
   } catch (err) {
-    $(`#s-${n}`).textContent = "Not sent. Check your connection; it will retry on your next change.";
+    failed.add(n);
+    $(`#s-${n}`).textContent = "Not sent yet. It will be retried automatically.";
   }
 }
+function flushAll(keepalive = false) { if (who) for (const n of [...unsent]) send(n, keepalive); }
 function changed(n, patch, delay) {
   mine[n] = Object.assign({}, entry(n), patch);
+  bump(n);
   unsent.add(n);
   persist();
   paintProgress();
   clearTimeout(timers[n]);
-  timers[n] = setTimeout(() => { for (const m of [...unsent]) if (m !== n) send(m); send(n); }, delay);
+  timers[n] = setTimeout(() => { for (const m of [...failed]) if (m !== n) send(m); send(n); }, delay);
 }
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") flushAll(true); });
+window.addEventListener("pagehide", () => flushAll(true));
+window.addEventListener("online", () => flushAll());
+setInterval(() => { if (who) for (const n of [...failed]) send(n); }, 20000);
 
 $("#list").addEventListener("click", ev => {
   const b = ev.target.closest(".vbtn");
@@ -314,7 +329,13 @@ $("#list").addEventListener("input", ev => {
   const t = ev.target.closest("textarea");
   if (!t) return;
   const n = t.closest(".item").dataset.n;
-  changed(n, { note: t.value.slice(0, 2000) }, 1500);
+  changed(n, { note: t.value.slice(0, 2000) }, 5000);
+});
+$("#list").addEventListener("focusout", ev => {
+  const t = ev.target.closest("textarea");
+  if (!t) return;
+  const n = t.closest(".item").dataset.n;
+  if (unsent.has(n)) send(n);
 });
 const whoInput = $("#who");
 whoInput.value = who;
@@ -334,7 +355,7 @@ $("#expand").addEventListener("click", () => {
 
 for (const it of ITEMS) paintCard(it.id);
 paintProgress(); paintFilter();
-if (unsent.size && who) for (const n of [...unsent]) send(n);
+flushAll();
 </script>
 </body>
 </html>
