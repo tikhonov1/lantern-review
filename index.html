@@ -129,7 +129,7 @@ code { font-family: var(--font-mono); font-size: 0.85em; overflow-wrap: anywhere
 .vbtn:disabled, .chk input:disabled { cursor: not-allowed; opacity: 0.55; }
 .chk { display: inline-flex; gap: 0.35rem; align-items: center; cursor: pointer; }
 .chk input { accent-color: var(--accent); }
-textarea { width: 100%; min-height: 2.4rem; resize: vertical; font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--rule); border-radius: 6px; padding: 0.45rem 0.6rem; }
+textarea { width: 100%; min-height: 4.8rem; resize: vertical; line-height: 1.45; overflow-y: hidden; font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--rule); border-radius: 6px; padding: 0.45rem 0.6rem; }
 .saved { color: var(--muted); font-size: var(--step-small); min-height: 1em; }
 
 .others { display: grid; gap: 0.4rem; font-family: var(--font-ui); font-size: var(--step-ui); background: var(--stamp-soft); border-radius: 6px; padding: 0.7rem 0.85rem; }
@@ -196,7 +196,7 @@ const DATA = {"items": [{"k": 1, "id": "A004009-A122135", "a": "A004009", "b": "
 const ITEMS = DATA.items;
 // The form address and field ids are sealed with AES-GCM under SHA-256 of the access token from the
 // link (#k=...). Without the token the page can be read but sends nothing.
-const SEALED = "1/EfZnZJ1kEHVoGBjhlZTUCUA/6uZKnswwZEAxAnG0/qfwLJGVQqdUJihuij90Fj578e2Vyn6h5Wci5hcv9O3m1gTgbz8YUNQ9Wzk6tYn4435vqrM3ASbYsQ7QH5tEduVDKkbAw9gO9y5NURjSVFiQd5xEbsW4jf3yj3mp+oozZjbR0HbCFoGmB9rN3RZOcdboh6aZiShLTRZCtroBg2lbcQ48/E0yVbR+KUpXzTgCFG1rcVCvwr1mL9rcf5QCZJ1xyiGGZlfJqox6A7QqpNxUJAyNT5OSI0pmlkFpYjmCEBahgeNNlr5xgWSuLYJPgvZuepfGqWLflpHmRtPYlpUK5p4nPxBq5S+G3kCFcNHx7a155KWvHU9Og8cIlgBx/JJpo06J4De3/Ojs4YVQqL6D2w9p8xt5IqweZwW+RJmrBOrP3np/jp10M=";
+const SEALED = "y1rSjJXNtjM1Jy9/5qwxP/RyCBvYcT1z368fCHzUByfNSkMsjWGs7DMPlN5mS41f0ixg93SgNVr7NfShBt9q6XyZXDMmaOxdhTT1dYrfEZH/FVO2dqPjjGVfvz6LmkSijKUSZjzW3KuKp7Lt3L0GN3k7Xdon8ZzauGGF25ALKW6N8jftVRDr7qklKrN2WiccZSaYIY0zAqW/1yadTGJ+B/mCVElEt0FeS6oIb3KMPjZ3BjP4xP7ihR7crk/76ID107j2aBH2Oe6lzB5BlP7Hg7hZ2eobou+mfpMwItWBaj4BgHryJu71Z6Y9otv2jSRlXrTk4AgeFpi8cEjT7ajCIcwgPRjoKRIFG7+Mq/LpsX88qbGyUbBroo0I8bZQ5AF+qc21S+ax5s9a2hziz9Tmjd41k1vjkyrMla04uvaSdWomR4yy1fXGQE4=";
 let FORM = null, F = null;
 async function unseal(token) {
   try {
@@ -239,7 +239,7 @@ function cardHTML(it) {
         <label class="chk"><input type="checkbox" id="k-${n}" data-k="known"> Known to me</label>
         <label class="chk"><input type="checkbox" id="p-${n}" data-k="flaw"> Derivation has a problem</label>
       </div>
-      <textarea id="note-${n}" rows="1" placeholder="Note"></textarea>
+      <textarea id="note-${n}" rows="3" placeholder="Note"></textarea>
       <div class="saved" id="s-${n}" aria-live="polite"></div>
     </div>
   </article>`;
@@ -248,6 +248,7 @@ $("#list").innerHTML = ITEMS.map(cardHTML).join("");
 const byId = Object.fromEntries(ITEMS.map(it => [it.id, it]));
 
 function entry(n) { return mine[n] || {}; }
+function fit(ta) { ta.style.height = "auto"; ta.style.height = ta.scrollHeight + 2 + "px"; }
 function rated(n) { return !!entry(n).v; }
 function paintCard(n) {
   const e = entry(n);
@@ -255,7 +256,7 @@ function paintCard(n) {
   $(`#k-${n}`).checked = !!e.known;
   $(`#p-${n}`).checked = !!e.flaw;
   const ta = $(`#note-${n}`);
-  if (document.activeElement !== ta) ta.value = e.note || "";
+  if (document.activeElement !== ta) { ta.value = e.note || ""; fit(ta); }
   $(`#s-${n}`).textContent = unsent.has(n) ? (who ? "Not sent yet" : "Enter your name at the top to send") : (e.sentAt ? "Sent" : "");
 }
 function paintProgress() {
@@ -341,6 +342,7 @@ $("#list").addEventListener("input", ev => {
   const t = ev.target.closest("textarea");
   if (!t) return;
   const n = t.closest(".item").dataset.n;
+  fit(t);
   changed(n, { note: t.value.slice(0, 2000) }, 5000);
 });
 $("#list").addEventListener("focusout", ev => {
@@ -374,7 +376,7 @@ paintProgress(); paintFilter();
     const cfg = await unseal(t);
     if (cfg) { FORM = cfg.url; F = cfg.f; store.set("lantern.k", t); break; }
   }
-  if (FORM) { document.body.classList.remove("locked"); flushAll(); }
+  if (FORM) { document.body.classList.remove("locked"); document.querySelectorAll("textarea").forEach(fit); flushAll(); }
   else notice("Answers can\u2019t be sent from this link.");
 })();
 </script>
